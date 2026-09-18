@@ -41,4 +41,6 @@ int main() {
     permute_bits(&value, p_block, true, true);
 
     std::cout << std::bitset<8>(value) << '\n';
+
+    return 0;
 }
