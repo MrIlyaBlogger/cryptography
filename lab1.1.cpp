@@ -43,4 +43,4 @@ int main() {
     std::cout << std::bitset<8>(value) << '\n';
 
     return 0;
-} //проверка git АБОБА ПУППУПУУПУП
+}
