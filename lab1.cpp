@@ -18,8 +18,7 @@ public:
     virtual RoundKeys expand_key(const Bytes& key) const = 0;
 
     virtual std::future<RoundKeys> expand_key_async(const Bytes& key) const {
-        return std::async(std::launch::async,
-                          [this, key]{ return expand_key(key); });
+        return std::async(std::launch::async, [this, key]{ return expand_key(key); });
     }
 };
 
@@ -29,10 +28,8 @@ public:
 
     virtual std::size_t block_size() const = 0;
 
-    virtual Bytes encrypt_block(const Bytes& block,
-                                const Bytes& round_key) const = 0;
-    virtual Bytes decrypt_block(const Bytes& block,
-                                const Bytes& round_key) const = 0;
+    virtual Bytes encrypt_block(const Bytes& block, const Bytes& round_key) const = 0;
+    virtual Bytes decrypt_block(const Bytes& block, const Bytes& round_key) const = 0;
 };
 
 class ISymmetricCipher {
@@ -45,12 +42,10 @@ public:
     virtual Bytes decrypt(const Bytes& block) const = 0;
 
     virtual std::future<Bytes> encrypt_async(const Bytes& block) const {
-        return std::async(std::launch::async,
-                          [this, block]{ return encrypt(block); });
+        return std::async(std::launch::async, [this, block]{ return encrypt(block); });
     }
     virtual std::future<Bytes> decrypt_async(const Bytes& block) const {
-        return std::async(std::launch::async,
-                          [this, block]{ return decrypt(block); });
+        return std::async(std::launch::async, [this, block]{ return decrypt(block); });
     }
 
     virtual std::size_t block_size() const = 0;
