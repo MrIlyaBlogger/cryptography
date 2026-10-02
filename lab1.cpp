@@ -17,7 +17,7 @@ public:
 
     virtual RoundKeys expand_key(const Bytes& key) const = 0;
 
-    virtual std::future<RoundKeys> expand_key_async(const Bytes& key) const {
+    std::future<RoundKeys> expand_key_async(const Bytes& key) const {
         return std::async(std::launch::async, [this, key]{ return expand_key(key); });
     }
 };
@@ -115,10 +115,6 @@ private:
     Bytes parallel_blocks(const Bytes& data, bool encrypt) const;
 };
 
-std::uint8_t value = 0b10110010;
-
-std::vector<int> p_block = {2, 0, 7, 4, 6, 1, 5, 3};
-
 void permute_bits (
     std::uint8_t *value,
     const std::vector<int> &p_block,
@@ -150,6 +146,11 @@ void permute_bits (
 }
 
 int main() {
+
+    std::uint8_t value = 0b10110010;
+
+    std::vector<int> p_block = {2, 0, 7, 4, 6, 1, 5, 3};
+
     permute_bits(&value, p_block, true, true);
 
     std::cout << std::bitset<8>(value) << '\n';
