@@ -2,7 +2,6 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <future>
 #include <fstream>
 #include <iostream>
 #include <iterator>
@@ -385,8 +384,7 @@ private:
     FeistelCipher network_;
 };
 
-// Context for data buffers and files. File operations and buffer operations
-// have asynchronous variants returning futures as requested in the assignment.
+// Context for transforming data buffers and files.
 class CipherContext {
 public:
     CipherContext(std::shared_ptr<ISymmetricCipher> cipher, const Bytes& key,
@@ -425,21 +423,11 @@ public:
 
     Bytes encrypt(const Bytes& input) const { return transform(input, false); }
     Bytes decrypt(const Bytes& input) const { return transform(input, true); }
-    std::future<Bytes> encryptAsync(Bytes input) const {
-        return std::async(std::launch::async, [this, input = std::move(input)] { return encrypt(input); });
+    void encryptFile(const std::string& inputPath, const std::string& outputPath) const {
+        writeFile(outputPath, encrypt(readFile(inputPath)));
     }
-    std::future<Bytes> decryptAsync(Bytes input) const {
-        return std::async(std::launch::async, [this, input = std::move(input)] { return decrypt(input); });
-    }
-    std::future<void> encryptFileAsync(std::string inputPath, std::string outputPath) const {
-        return std::async(std::launch::async, [this, inputPath = std::move(inputPath), outputPath = std::move(outputPath)] {
-            writeFile(outputPath, encrypt(readFile(inputPath)));
-        });
-    }
-    std::future<void> decryptFileAsync(std::string inputPath, std::string outputPath) const {
-        return std::async(std::launch::async, [this, inputPath = std::move(inputPath), outputPath = std::move(outputPath)] {
-            writeFile(outputPath, decrypt(readFile(inputPath)));
-        });
+    void decryptFile(const std::string& inputPath, const std::string& outputPath) const {
+        writeFile(outputPath, decrypt(readFile(inputPath)));
     }
 
 private:
@@ -638,9 +626,9 @@ int main(int argc, char** argv) {
             CipherContext fileContext(fileCipher, fileKey, CipherMode::CBC,
                                       PaddingMode::PKCS7, fileIv);
             if (encrypting) {
-                fileContext.encryptFileAsync(argv[2], argv[3]).get();
+                fileContext.encryptFile(argv[2], argv[3]);
             } else {
-                fileContext.decryptFileAsync(argv[2], argv[3]).get();
+                fileContext.decryptFile(argv[2], argv[3]);
             }
             std::cout << algorithm << "-CBC " << (encrypting ? "encrypted " : "decrypted ")
                       << argv[2] << " -> " << argv[3] << '\n';
@@ -657,8 +645,8 @@ int main(int argc, char** argv) {
             }
             CipherContext desContext(des, key, modes[i], PaddingMode::PKCS7,
                                      fromHex("0102030405060708"), extra);
-            const Bytes ciphertext = desContext.encryptAsync(sample).get();
-            const Bytes plaintext = desContext.decryptAsync(ciphertext).get();
+            const Bytes ciphertext = desContext.encrypt(sample);
+            const Bytes plaintext = desContext.decrypt(ciphertext);
             std::cout << "DES-" << modeNames[i] << ": " << toHex(ciphertext)
                       << " -> " << std::string(plaintext.begin(), plaintext.end()) << '\n';
         }
@@ -672,8 +660,8 @@ int main(int argc, char** argv) {
             }
             CipherContext dealContext(deal, dealKey, modes[i], PaddingMode::PKCS7,
                                       Bytes(16, 0x01), extra);
-            const Bytes ciphertext = dealContext.encryptAsync(sample).get();
-            const Bytes plaintext = dealContext.decryptAsync(ciphertext).get();
+            const Bytes ciphertext = dealContext.encrypt(sample);
+            const Bytes plaintext = dealContext.decrypt(ciphertext);
             std::cout << "DEAL-" << modeNames[i] << ": " << toHex(ciphertext)
                       << " -> " << std::string(plaintext.begin(), plaintext.end()) << '\n';
         }
