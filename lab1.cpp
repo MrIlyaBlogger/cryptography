@@ -1,14 +1,18 @@
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cstddef>
 #include <cstdint>
 #include <fstream>
+#include <future>
 #include <iostream>
 #include <iterator>
 #include <memory>
+#include <mutex>
 #include <random>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -355,8 +359,31 @@ public:
 class DEALRoundTransform : public IRoundTransform {
 public:
     Bytes apply(const Bytes& halfBlock, const Bytes& roundKey) const override {
-        DESCipher des; des.setKey(roundKey); return des.encryptBlock(halfBlock);
+        if (roundKey.size() != 8) {
+            throw std::invalid_argument("DEAL round key must contain 8 bytes");
+        }
+        const std::string cacheKey(reinterpret_cast<const char*>(roundKey.data()), roundKey.size());
+        std::shared_ptr<const DESCipher> des;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            const auto found = cache_.find(cacheKey);
+            if (found != cache_.end()) {
+                des = found->second;
+            } else {
+                auto prepared = std::make_shared<DESCipher>();
+                prepared->setKey(roundKey);
+                des = prepared;
+                cache_.emplace(cacheKey, std::move(prepared));
+            }
+        }
+        return des->encryptBlock(halfBlock);
     }
+
+private:
+    // DEAL reuses each subkey for every data block. Cache the corresponding
+    // DES schedule instead of rebuilding it for every DEAL round invocation.
+    mutable std::mutex mutex_;
+    mutable std::unordered_map<std::string, std::shared_ptr<const DESCipher>> cache_;
 };
 
 class DEALCipher : public ISymmetricCipher {
@@ -423,11 +450,31 @@ public:
 
     Bytes encrypt(const Bytes& input) const { return transform(input, false); }
     Bytes decrypt(const Bytes& input) const { return transform(input, true); }
+    std::future<Bytes> encryptAsync(Bytes input) const {
+        return std::async(std::launch::async,
+                          [this, input = std::move(input)] { return encrypt(input); });
+    }
+    std::future<Bytes> decryptAsync(Bytes input) const {
+        return std::async(std::launch::async,
+                          [this, input = std::move(input)] { return decrypt(input); });
+    }
     void encryptFile(const std::string& inputPath, const std::string& outputPath) const {
         writeFile(outputPath, encrypt(readFile(inputPath)));
     }
     void decryptFile(const std::string& inputPath, const std::string& outputPath) const {
         writeFile(outputPath, decrypt(readFile(inputPath)));
+    }
+    std::future<void> encryptFileAsync(std::string inputPath, std::string outputPath) const {
+        return std::async(std::launch::async,
+                          [this, inputPath = std::move(inputPath), outputPath = std::move(outputPath)] {
+                              encryptFile(inputPath, outputPath);
+                          });
+    }
+    std::future<void> decryptFileAsync(std::string inputPath, std::string outputPath) const {
+        return std::async(std::launch::async,
+                          [this, inputPath = std::move(inputPath), outputPath = std::move(outputPath)] {
+                              decryptFile(inputPath, outputPath);
+                          });
     }
 
 private:
@@ -599,73 +646,245 @@ Bytes fromHex(const std::string& text) {
     return result;
 }
 
+std::string uppercase(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::toupper(ch));
+    });
+    return value;
+}
+
+CipherMode parseCipherMode(const std::string& name) {
+    const std::string value = uppercase(name);
+    if (value == "ECB") return CipherMode::ECB;
+    if (value == "CBC") return CipherMode::CBC;
+    if (value == "PCBC") return CipherMode::PCBC;
+    if (value == "CFB") return CipherMode::CFB;
+    if (value == "OFB") return CipherMode::OFB;
+    if (value == "CTR") return CipherMode::CTR;
+    if (value == "RANDOMDELTA" || value == "RANDOM_DELTA") return CipherMode::RandomDelta;
+    throw std::invalid_argument("Unknown mode: " + name);
+}
+
+PaddingMode parsePaddingMode(const std::string& name) {
+    const std::string value = uppercase(name);
+    if (value == "ZEROS" || value == "ZERO") return PaddingMode::Zeros;
+    if (value == "ANSI_X923" || value == "X923" || value == "ANSI-X923") return PaddingMode::ANSI_X923;
+    if (value == "PKCS7" || value == "PKCS#7") return PaddingMode::PKCS7;
+    if (value == "ISO10126" || value == "ISO_10126" || value == "ISO-10126") return PaddingMode::ISO10126;
+    throw std::invalid_argument("Unknown padding: " + name);
+}
+
+std::string modeName(CipherMode mode) {
+    switch (mode) {
+        case CipherMode::ECB: return "ECB";
+        case CipherMode::CBC: return "CBC";
+        case CipherMode::PCBC: return "PCBC";
+        case CipherMode::CFB: return "CFB";
+        case CipherMode::OFB: return "OFB";
+        case CipherMode::CTR: return "CTR";
+        case CipherMode::RandomDelta: return "RandomDelta";
+    }
+    throw std::logic_error("Invalid cipher mode");
+}
+
+std::string paddingName(PaddingMode padding) {
+    switch (padding) {
+        case PaddingMode::Zeros: return "Zeros";
+        case PaddingMode::ANSI_X923: return "ANSI_X923";
+        case PaddingMode::PKCS7: return "PKCS7";
+        case PaddingMode::ISO10126: return "ISO10126";
+    }
+    throw std::logic_error("Invalid padding mode");
+}
+
+Bytes pseudoRandomBytes(std::size_t count, std::mt19937& generator) {
+    std::uniform_int_distribution<unsigned> distribution(0, 255);
+    Bytes result(count);
+    for (auto& byte : result) byte = static_cast<std::uint8_t>(distribution(generator));
+    return result;
+}
+
+std::shared_ptr<ISymmetricCipher> makeCipher(const std::string& name) {
+    const std::string value = uppercase(name);
+    if (value == "DES") return std::make_shared<DESCipher>();
+    if (value == "DEAL") return std::make_shared<DEALCipher>();
+    throw std::invalid_argument("Algorithm must be DES or DEAL");
+}
+
+Bytes keyFor(const std::string& name) {
+    return uppercase(name) == "DEAL"
+        ? fromHex("0123456789ABCDEFFEDCBA9876543210")
+        : fromHex("133457799BBCDFF1");
+}
+
+Bytes demoIv(std::size_t blockSize) {
+    return blockSize == 8 ? fromHex("0102030405060708") : Bytes(blockSize, 0x01);
+}
+
+std::vector<Bytes> modeParameters(CipherMode mode, std::size_t blockSize,
+                                 std::mt19937* generator = nullptr) {
+    if (mode != CipherMode::RandomDelta) return {};
+    Bytes delta(blockSize, 0);
+    if (generator) {
+        delta = pseudoRandomBytes(blockSize, *generator);
+        if (std::all_of(delta.begin(), delta.end(), [](std::uint8_t b) { return b == 0; })) {
+            delta.back() = 1;
+        }
+    } else {
+        delta.back() = 3;
+    }
+    return {std::move(delta)};
+}
+
+bool runSelfTests() {
+    const Bytes permutationInput{0xb2};
+    const std::vector<std::size_t> zeroBasedPBlock{2, 0, 7, 4, 6, 1, 5, 3};
+    const std::vector<std::size_t> oneBasedPBlock{3, 1, 8, 5, 7, 2, 6, 4};
+    if (permuteBits(permutationInput, zeroBasedPBlock, BitOrder::LeastSignificantFirst,
+                    FirstBitNumber::Zero) != Bytes{0x6c} ||
+        permuteBits(permutationInput, oneBasedPBlock, BitOrder::LeastSignificantFirst,
+                    FirstBitNumber::One) != Bytes{0x6c} ||
+        permuteBits(permutationInput, zeroBasedPBlock, BitOrder::MostSignificantFirst,
+                    FirstBitNumber::Zero) != Bytes{0xc9}) {
+        std::cerr << "P-block permutation test failed\n";
+        return false;
+    }
+
+    // Published DES known-answer vector: this catches errors that a simple
+    // encrypt/decrypt round-trip could hide.
+    DESCipher des;
+    des.setKey(fromHex("133457799BBCDFF1"));
+    const Bytes desPlaintext = fromHex("0123456789ABCDEF");
+    const Bytes desCiphertext = des.encryptBlock(desPlaintext);
+    if (toHex(desCiphertext) != "85E813540F0AB405" || des.decryptBlock(desCiphertext) != desPlaintext) {
+        std::cerr << "DES known-answer test failed\n";
+        return false;
+    }
+
+    // Exercise all supported DEAL master-key sizes and exact block inverses.
+    DEALKeyExpansion dealExpansion;
+    for (std::size_t keySize : {std::size_t(16), std::size_t(24), std::size_t(32)}) {
+        const std::size_t expectedRounds = keySize == 32 ? 8 : 6;
+        if (dealExpansion.expand(Bytes(keySize, 0x2a)).size() != expectedRounds) {
+            std::cerr << "DEAL key expansion returned the wrong round count\n";
+            return false;
+        }
+        DEALCipher deal;
+        deal.setKey(Bytes(keySize, static_cast<std::uint8_t>(keySize)));
+        const Bytes block(16, 0x5a);
+        if (deal.decryptBlock(deal.encryptBlock(block)) != block) {
+            std::cerr << "DEAL round-trip failed for " << keySize * 8 << "-bit key\n";
+            return false;
+        }
+    }
+
+    const std::array<CipherMode, 7> modes = {CipherMode::ECB, CipherMode::CBC, CipherMode::PCBC,
+        CipherMode::CFB, CipherMode::OFB, CipherMode::CTR, CipherMode::RandomDelta};
+    const std::array<PaddingMode, 4> paddings = {PaddingMode::Zeros, PaddingMode::ANSI_X923,
+        PaddingMode::PKCS7, PaddingMode::ISO10126};
+    std::mt19937 generator(0x4c414231U);
+    for (const std::string& algorithm : {std::string("DES"), std::string("DEAL")}) {
+        for (CipherMode mode : modes) {
+            for (PaddingMode padding : paddings) {
+                for (std::size_t length : {std::size_t(0), std::size_t(1), std::size_t(7),
+                                           std::size_t(8), std::size_t(9), std::size_t(15), std::size_t(16),
+                                           std::size_t(17), std::size_t(33)}) {
+                    auto cipher = makeCipher(algorithm);
+                    const std::size_t blockSize = cipher->blockSize();
+                    Bytes original = pseudoRandomBytes(length, generator);
+                    if (padding == PaddingMode::Zeros && !original.empty()) {
+                        // Zero padding cannot preserve terminal zero bytes by design.
+                        original.back() = 1;
+                    }
+                    CipherContext context(cipher, keyFor(algorithm), mode, padding,
+                                          demoIv(blockSize), modeParameters(mode, blockSize, &generator));
+                    const Bytes encrypted = context.encrypt(original);
+                    const Bytes recovered = context.decrypt(encrypted);
+                    if (recovered != original) {
+                        std::cerr << algorithm << ' ' << modeName(mode) << ' '
+                                  << paddingName(padding) << " failed at length " << length << '\n';
+                        return false;
+                    }
+                }
+            }
+        }
+    }
+    std::cout << "All self-tests passed: P-block indexing, DES known-answer vector, DEAL key sizes, "
+                 "7 modes, 4 paddings, and boundary lengths.\n";
+    return true;
+}
+
+void printUsage(const char* executable) {
+    std::cout << "Usage:\n"
+              << "  " << executable << "\n"
+              << "  " << executable << " --self-test\n"
+              << "  " << executable << " encrypt|decrypt input-file output-file [DES|DEAL] [MODE] [PADDING]\n"
+              << "Modes: ECB CBC PCBC CFB OFB CTR RandomDelta\n"
+              << "Padding: Zeros ANSI_X923 PKCS7 ISO10126 (ignored by CFB/OFB/CTR/RandomDelta)\n";
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
     try {
-        const Bytes key = fromHex("133457799BBCDFF1");
-        auto des = std::make_shared<DESCipher>();
-        if ((argc == 4 || argc == 5) &&
+        if (argc == 2 && (std::string(argv[1]) == "--help" || std::string(argv[1]) == "-h")) {
+            printUsage(argv[0]);
+            return 0;
+        }
+        if (argc == 2 && std::string(argv[1]) == "--self-test") {
+            return runSelfTests() ? 0 : 1;
+        }
+        if (argc >= 4 && argc <= 7 &&
             (std::string(argv[1]) == "encrypt" || std::string(argv[1]) == "decrypt")) {
             const bool encrypting = std::string(argv[1]) == "encrypt";
-            const std::string algorithm = argc == 5 ? argv[4] : "DES";
-            std::shared_ptr<ISymmetricCipher> fileCipher;
-            Bytes fileKey;
-            Bytes fileIv;
-            if (algorithm == "DES" || algorithm == "des") {
-                fileCipher = std::make_shared<DESCipher>();
-                fileKey = key;
-                fileIv = fromHex("0102030405060708");
-            } else if (algorithm == "DEAL" || algorithm == "deal") {
-                fileCipher = std::make_shared<DEALCipher>();
-                fileKey = fromHex("0123456789ABCDEFFEDCBA9876543210");
-                fileIv = Bytes(16, 0x01);
-            } else {
-                throw std::invalid_argument("Algorithm must be DES or DEAL");
-            }
-            CipherContext fileContext(fileCipher, fileKey, CipherMode::CBC,
-                                      PaddingMode::PKCS7, fileIv);
+            const std::string algorithm = argc >= 5 ? argv[4] : "DES";
+            const CipherMode mode = argc >= 6 ? parseCipherMode(argv[5]) : CipherMode::CBC;
+            const PaddingMode padding = argc >= 7 ? parsePaddingMode(argv[6]) : PaddingMode::PKCS7;
+            auto fileCipher = makeCipher(algorithm);
+            const std::size_t blockSize = fileCipher->blockSize();
+            CipherContext fileContext(fileCipher, keyFor(algorithm), mode, padding,
+                                      demoIv(blockSize), modeParameters(mode, blockSize));
             if (encrypting) {
-                fileContext.encryptFile(argv[2], argv[3]);
+                fileContext.encryptFileAsync(argv[2], argv[3]).get();
             } else {
-                fileContext.decryptFile(argv[2], argv[3]);
+                fileContext.decryptFileAsync(argv[2], argv[3]).get();
             }
-            std::cout << algorithm << "-CBC " << (encrypting ? "encrypted " : "decrypted ")
+            std::cout << uppercase(algorithm) << '-' << modeName(mode) << '-' << paddingName(padding)
+                      << (encrypting ? " encrypted " : " decrypted ")
                       << argv[2] << " -> " << argv[3] << '\n';
             return 0;
         }
-        const Bytes sample{'C','r','y','p','t','o','g','r','a','p','h','y'};
-        const std::array<CipherMode, 7> modes = {CipherMode::ECB, CipherMode::CBC, CipherMode::PCBC,
-            CipherMode::CFB, CipherMode::OFB, CipherMode::CTR, CipherMode::RandomDelta};
-        const std::array<const char*, 7> modeNames = {"ECB", "CBC", "PCBC", "CFB", "OFB", "CTR", "RandomDelta"};
-        for (std::size_t i = 0; i < modes.size(); ++i) {
-            std::vector<Bytes> extra;
-            if (modes[i] == CipherMode::RandomDelta) {
-                extra.push_back(Bytes{0,0,0,0,0,0,0,3});
-            }
-            CipherContext desContext(des, key, modes[i], PaddingMode::PKCS7,
-                                     fromHex("0102030405060708"), extra);
-            const Bytes ciphertext = desContext.encrypt(sample);
-            const Bytes plaintext = desContext.decrypt(ciphertext);
-            std::cout << "DES-" << modeNames[i] << ": " << toHex(ciphertext)
-                      << " -> " << std::string(plaintext.begin(), plaintext.end()) << '\n';
+        if (argc != 1) {
+            printUsage(argv[0]);
+            return 2;
         }
 
-        const Bytes dealKey = fromHex("0123456789ABCDEFFEDCBA9876543210");
-        auto deal = std::make_shared<DEALCipher>();
-        for (std::size_t i = 0; i < modes.size(); ++i) {
-            std::vector<Bytes> extra;
-            if (modes[i] == CipherMode::RandomDelta) {
-                extra.push_back(Bytes(16, 0x01));
+        std::mt19937 generator(0x4c414231U);
+        const Bytes sample = pseudoRandomBytes(256, generator);
+        const std::array<CipherMode, 7> modes = {CipherMode::ECB, CipherMode::CBC, CipherMode::PCBC,
+            CipherMode::CFB, CipherMode::OFB, CipherMode::CTR, CipherMode::RandomDelta};
+        for (const std::string& algorithm : {std::string("DES"), std::string("DEAL")}) {
+            for (CipherMode mode : modes) {
+                auto cipher = makeCipher(algorithm);
+                const std::size_t blockSize = cipher->blockSize();
+                Bytes iv = mode == CipherMode::RandomDelta
+                    ? pseudoRandomBytes(blockSize, generator) : demoIv(blockSize);
+                auto extra = modeParameters(mode, blockSize,
+                                            mode == CipherMode::RandomDelta ? &generator : nullptr);
+                if (mode == CipherMode::RandomDelta &&
+                    std::all_of(iv.begin(), iv.end(), [](std::uint8_t b) { return b == 0; })) {
+                    iv.back() = 1;
+                }
+                CipherContext context(cipher, keyFor(algorithm), mode, PaddingMode::PKCS7,
+                                      std::move(iv), std::move(extra));
+                const Bytes ciphertext = context.encryptAsync(sample).get();
+                const Bytes recovered = context.decryptAsync(ciphertext).get();
+                std::cout << algorithm << '-' << modeName(mode) << ": "
+                          << (recovered == sample ? "round-trip OK" : "ROUND-TRIP FAILED")
+                          << " (" << sample.size() << " pseudo-random bytes)\n";
             }
-            CipherContext dealContext(deal, dealKey, modes[i], PaddingMode::PKCS7,
-                                      Bytes(16, 0x01), extra);
-            const Bytes ciphertext = dealContext.encrypt(sample);
-            const Bytes plaintext = dealContext.decrypt(ciphertext);
-            std::cout << "DEAL-" << modeNames[i] << ": " << toHex(ciphertext)
-                      << " -> " << std::string(plaintext.begin(), plaintext.end()) << '\n';
         }
-        std::cout << "File usage: " << argv[0] << " encrypt|decrypt input-file output-file [DES|DEAL]\n";
+        printUsage(argv[0]);
     } catch (const std::exception& error) {
         std::cerr << "Error: " << error.what() << '\n';
         return 1;
