@@ -38,23 +38,33 @@ void setBit(Bytes& bytes, std::size_t sequenceIndex, BitOrder order) {
 }
 
 Bytes xorBytes(const Bytes& left, const Bytes& right) {
-    if (left.size() != right.size()) throw std::invalid_argument("XOR operands must have equal length");
+    if (left.size() != right.size()) {
+        throw std::invalid_argument("XOR operands must have equal length");
+    }
     Bytes result(left.size());
-    for (std::size_t i = 0; i < left.size(); ++i) result[i] = left[i] ^ right[i];
+    for (std::size_t i = 0; i < left.size(); ++i) {
+        result[i] = left[i] ^ right[i];
+    }
     return result;
 }
 
 Bytes readFile(const std::string& path) {
     std::ifstream input(path, std::ios::binary);
-    if (!input) throw std::runtime_error("Cannot open input file: " + path);
+    if (!input) {
+        throw std::runtime_error("Cannot open input file: " + path);
+    }
     return Bytes(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
 }
 
 void writeFile(const std::string& path, const Bytes& data) {
     std::ofstream output(path, std::ios::binary | std::ios::trunc);
-    if (!output) throw std::runtime_error("Cannot open output file: " + path);
+    if (!output) {
+        throw std::runtime_error("Cannot open output file: " + path);
+    }
     output.write(reinterpret_cast<const char*>(data.data()), static_cast<std::streamsize>(data.size()));
-    if (!output) throw std::runtime_error("Failed to write output file: " + path);
+    if (!output) {
+        throw std::runtime_error("Failed to write output file: " + path);
+    }
 }
 
 } // namespace
@@ -66,15 +76,19 @@ Bytes permuteBits(const Bytes& value, const std::vector<std::size_t>& pBlock,
                   BitOrder order, FirstBitNumber firstBitNumber) {
     const std::size_t firstBit = firstBitNumber == FirstBitNumber::Zero ? 0 : 1;
     if (value.size() > static_cast<std::size_t>(-1) / 8 ||
-        pBlock.size() > static_cast<std::size_t>(-1) - 7)
+        pBlock.size() > static_cast<std::size_t>(-1) - 7) {
         throw std::length_error("Bit array is too large");
+    }
     const std::size_t inputBitCount = value.size() * 8;
     Bytes result((pBlock.size() + 7) / 8, 0);
     for (std::size_t outputIndex = 0; outputIndex < pBlock.size(); ++outputIndex) {
         const std::size_t numberedInputBit = pBlock[outputIndex];
-        if (numberedInputBit < firstBit || numberedInputBit - firstBit >= inputBitCount)
+        if (numberedInputBit < firstBit || numberedInputBit - firstBit >= inputBitCount) {
             throw std::out_of_range("P-block contains a bit number outside the input value");
-        if (getBit(value, numberedInputBit - firstBit, order)) setBit(result, outputIndex, order);
+        }
+        if (getBit(value, numberedInputBit - firstBit, order)) {
+            setBit(result, outputIndex, order);
+        }
     }
     return result;
 }
@@ -112,13 +126,16 @@ public:
                   std::size_t blockBytes)
         : keyExpansion_(std::move(keyExpansion)), roundTransform_(std::move(roundTransform)),
           blockBytes_(blockBytes) {
-        if (!keyExpansion_ || !roundTransform_ || blockBytes_ == 0 || blockBytes_ % 2 != 0)
+        if (!keyExpansion_ || !roundTransform_ || blockBytes_ == 0 || blockBytes_ % 2 != 0) {
             throw std::invalid_argument("Feistel cipher requires valid components and an even block size");
+        }
     }
 
     void setKey(const Bytes& key) override {
         roundKeys_ = keyExpansion_->expand(key);
-        if (roundKeys_.empty()) throw std::invalid_argument("Key expansion returned no round keys");
+        if (roundKeys_.empty()) {
+            throw std::invalid_argument("Key expansion returned no round keys");
+        }
     }
 
     Bytes encryptBlock(const Bytes& block) const override { return process(block, false); }
@@ -127,8 +144,12 @@ public:
 
 private:
     Bytes process(const Bytes& block, bool reverse) const {
-        if (roundKeys_.empty()) throw std::logic_error("Set the cipher key before using it");
-        if (block.size() != blockBytes_) throw std::invalid_argument("Invalid block length");
+        if (roundKeys_.empty()) {
+            throw std::logic_error("Set the cipher key before using it");
+        }
+        if (block.size() != blockBytes_) {
+            throw std::invalid_argument("Invalid block length");
+        }
         const std::size_t halfSize = blockBytes_ / 2;
         Bytes left(block.begin(), block.begin() + static_cast<std::ptrdiff_t>(halfSize));
         Bytes right(block.begin() + static_cast<std::ptrdiff_t>(halfSize), block.end());
@@ -154,7 +175,9 @@ namespace {
 Bytes permuteDes(const Bytes& input, const std::vector<std::size_t>& table) {
     std::vector<std::size_t> zeroBased;
     zeroBased.reserve(table.size());
-    for (std::size_t bit : table) zeroBased.push_back(bit - 1);
+    for (std::size_t bit : table) {
+        zeroBased.push_back(bit - 1);
+    }
     return permuteBits(input, zeroBased, BitOrder::MostSignificantFirst, FirstBitNumber::Zero);
 }
 
@@ -194,26 +217,40 @@ constexpr unsigned SBOX[8][4][16] = {
 class DESKeyExpansion : public IKeyExpansion {
 public:
     std::vector<Bytes> expand(const Bytes& key) const override {
-        if (key.size() != 8) throw std::invalid_argument("DES key must contain 8 bytes");
+        if (key.size() != 8) {
+            throw std::invalid_argument("DES key must contain 8 bytes");
+        }
         Bytes selected = permuteDes(key, std::vector<std::size_t>(PC1.begin(), PC1.end()));
         Bytes c(selected.begin(), selected.begin() + 4), d(4, 0);
-        for (std::size_t i = 0; i < 28; ++i) if (getBit(selected, i + 28, BitOrder::MostSignificantFirst)) setBit(d, i, BitOrder::MostSignificantFirst);
+        for (std::size_t i = 0; i < 28; ++i) {
+            if (getBit(selected, i + 28, BitOrder::MostSignificantFirst)) {
+                setBit(d, i, BitOrder::MostSignificantFirst);
+            }
+        }
         std::vector<Bytes> keys;
         for (unsigned shift : SHIFTS) {
             // Use an explicit rotation to avoid depending on host integer width.
             auto rotateHalf = [shift](Bytes& half) {
                 std::array<bool, 28> bits{}; Bytes result(4, 0);
-                for (std::size_t i = 0; i < 28; ++i) bits[i] = getBit(half, i, BitOrder::MostSignificantFirst);
-                for (std::size_t i = 0; i < 28; ++i) if (bits[(i + shift) % 28]) setBit(result, i, BitOrder::MostSignificantFirst);
+                for (std::size_t i = 0; i < 28; ++i) {
+                    bits[i] = getBit(half, i, BitOrder::MostSignificantFirst);
+                }
+                for (std::size_t i = 0; i < 28; ++i) {
+                    if (bits[(i + shift) % 28]) {
+                        setBit(result, i, BitOrder::MostSignificantFirst);
+                    }
+                }
                 half = std::move(result);
             };
             rotateHalf(c); rotateHalf(d);
             Bytes joined(7, 0);
             for (std::size_t bit = 0; bit < 28; ++bit) {
-                if (getBit(c, bit, BitOrder::MostSignificantFirst))
+                if (getBit(c, bit, BitOrder::MostSignificantFirst)) {
                     setBit(joined, bit, BitOrder::MostSignificantFirst);
-                if (getBit(d, bit, BitOrder::MostSignificantFirst))
+                }
+                if (getBit(d, bit, BitOrder::MostSignificantFirst)) {
                     setBit(joined, bit + 28, BitOrder::MostSignificantFirst);
+                }
             }
             keys.push_back(permuteDes(joined, std::vector<std::size_t>(PC2.begin(), PC2.end())));
         }
@@ -224,7 +261,9 @@ public:
 class DESRoundTransform : public IRoundTransform {
 public:
     Bytes apply(const Bytes& halfBlock, const Bytes& roundKey) const override {
-        if (halfBlock.size() != 4 || roundKey.size() != 6) throw std::invalid_argument("Invalid DES round input");
+        if (halfBlock.size() != 4 || roundKey.size() != 6) {
+            throw std::invalid_argument("Invalid DES round input");
+        }
         Bytes expanded = permuteDes(halfBlock, std::vector<std::size_t>(E.begin(), E.end()));
         expanded = xorBytes(expanded, roundKey);
         Bytes substituted(4, 0);
@@ -233,9 +272,15 @@ public:
             const unsigned row = (getBit(expanded, offset, BitOrder::MostSignificantFirst) ? 2U : 0U) |
                                  (getBit(expanded, offset + 5, BitOrder::MostSignificantFirst) ? 1U : 0U);
             unsigned column = 0;
-            for (std::size_t bit = 1; bit <= 4; ++bit) column = (column << 1U) | (getBit(expanded, offset + bit, BitOrder::MostSignificantFirst) ? 1U : 0U);
+            for (std::size_t bit = 1; bit <= 4; ++bit) {
+                column = (column << 1U) | (getBit(expanded, offset + bit, BitOrder::MostSignificantFirst) ? 1U : 0U);
+            }
             const unsigned value = SBOX[box][row][column];
-            for (unsigned bit = 0; bit < 4; ++bit) if ((value >> (3U - bit)) & 1U) setBit(substituted, box * 4 + bit, BitOrder::MostSignificantFirst);
+            for (unsigned bit = 0; bit < 4; ++bit) {
+                if ((value >> (3U - bit)) & 1U) {
+                    setBit(substituted, box * 4 + bit, BitOrder::MostSignificantFirst);
+                }
+            }
         }
         return permuteDes(substituted, std::vector<std::size_t>(P.begin(), P.end()));
     }
@@ -263,15 +308,17 @@ private:
 class DEALKeyExpansion : public IKeyExpansion {
 public:
     std::vector<Bytes> expand(const Bytes& key) const override {
-        if (key.size() != 16 && key.size() != 24 && key.size() != 32)
+        if (key.size() != 16 && key.size() != 24 && key.size() != 32) {
             throw std::invalid_argument("DEAL key must contain 16, 24, or 32 bytes");
+        }
         const std::size_t rounds = key.size() == 32 ? 8 : 6;
         DESCipher des;
         des.setKey(Bytes{0x12,0x34,0x56,0x78,0x90,0xab,0xcd,0xef});
         std::vector<Bytes> masterKeys;
-        for (std::size_t i = 0; i < key.size(); i += 8)
+        for (std::size_t i = 0; i < key.size(); i += 8) {
             masterKeys.emplace_back(key.begin() + static_cast<std::ptrdiff_t>(i),
-                                     key.begin() + static_cast<std::ptrdiff_t>(i + 8));
+                                    key.begin() + static_cast<std::ptrdiff_t>(i + 8));
+        }
         std::vector<Bytes> result;
         Bytes state(8, 0);
         // DEAL-128/192/256 extend the input key words with the published
@@ -296,7 +343,9 @@ public:
                 constantIndex = i - 4;
             }
             Bytes input = xorBytes(masterKeys[wordIndex], state);
-            if (hasConstant) input[constantIndex / 8] ^= static_cast<std::uint8_t>(0x80U >> (constantIndex % 8));
+            if (hasConstant) {
+                input[constantIndex / 8] ^= static_cast<std::uint8_t>(0x80U >> (constantIndex % 8));
+            }
             state = des.encryptBlock(input);
             result.push_back(state);
         }
@@ -316,13 +365,17 @@ public:
     DEALCipher() : network_(std::make_shared<DEALKeyExpansion>(), std::make_shared<DEALRoundTransform>(), 16) {}
     void setKey(const Bytes& key) override { network_.setKey(key); }
     Bytes encryptBlock(const Bytes& block) const override {
-        if (block.size() != 16) throw std::invalid_argument("DEAL block must contain 16 bytes");
+        if (block.size() != 16) {
+            throw std::invalid_argument("DEAL block must contain 16 bytes");
+        }
         Bytes reversed(block.begin() + 8, block.end());
         reversed.insert(reversed.end(), block.begin(), block.begin() + 8);
         return network_.encryptBlock(reversed);
     }
     Bytes decryptBlock(const Bytes& block) const override {
-        if (block.size() != 16) throw std::invalid_argument("DEAL block must contain 16 bytes");
+        if (block.size() != 16) {
+            throw std::invalid_argument("DEAL block must contain 16 bytes");
+        }
         Bytes reversed = network_.decryptBlock(block);
         std::rotate(reversed.begin(), reversed.begin() + 8, reversed.end());
         return reversed;
@@ -341,20 +394,33 @@ public:
                   std::vector<Bytes> extraParameters = {})
         : cipher_(std::move(cipher)), mode_(mode), padding_(padding), iv_(std::move(iv)),
           extra_(std::move(extraParameters)) {
-        if (!cipher_) throw std::invalid_argument("Cipher must not be null");
+        if (!cipher_) {
+            throw std::invalid_argument("Cipher must not be null");
+        }
         cipher_->setKey(key);
         const std::size_t n = cipher_->blockSize();
-        if (mode_ == CipherMode::RandomDelta && iv_.empty())
+        if (mode_ == CipherMode::RandomDelta && iv_.empty()) {
             throw std::invalid_argument("RandomDelta requires an explicit initial counter in iv");
-        if (iv_.empty()) iv_.assign(n, 0);
-        if (iv_.size() != n) throw std::invalid_argument("IV length must equal the cipher block size");
-        if (mode_ == CipherMode::RandomDelta && extra_.empty())
+        }
+        if (iv_.empty()) {
+            iv_.assign(n, 0);
+        }
+        if (iv_.size() != n) {
+            throw std::invalid_argument("IV length must equal the cipher block size");
+        }
+        if (mode_ == CipherMode::RandomDelta && extra_.empty()) {
             throw std::invalid_argument("RandomDelta requires an explicit increment in extraParameters");
+        }
         delta_ = extra_.empty() ? Bytes(n, 0) : extra_.front();
-        if (delta_.size() != n) throw std::invalid_argument("RandomDelta increment must equal the block size");
-        if (extra_.empty()) delta_.back() = 1;
-        if (std::all_of(delta_.begin(), delta_.end(), [](std::uint8_t b) { return b == 0; }))
+        if (delta_.size() != n) {
+            throw std::invalid_argument("RandomDelta increment must equal the block size");
+        }
+        if (extra_.empty()) {
+            delta_.back() = 1;
+        }
+        if (std::all_of(delta_.begin(), delta_.end(), [](std::uint8_t b) { return b == 0; })) {
             throw std::invalid_argument("RandomDelta increment must be nonzero");
+        }
     }
 
     Bytes encrypt(const Bytes& input) const { return transform(input, false); }
@@ -381,7 +447,9 @@ private:
         const std::size_t n = cipher_->blockSize();
         const std::size_t remainder = data.size() % n;
         if (padding_ == PaddingMode::Zeros) {
-            if (remainder) data.resize(data.size() + n - remainder, 0);
+            if (remainder) {
+                data.resize(data.size() + n - remainder, 0);
+            }
             return data;
         }
         const std::size_t count = n - remainder;
@@ -393,7 +461,9 @@ private:
             const std::size_t old = data.size(); data.resize(old + count);
             if (count > 1) {
                 std::random_device random;
-                for (std::size_t i = old; i + 1 < data.size(); ++i) data[i] = static_cast<std::uint8_t>(random());
+                for (std::size_t i = old; i + 1 < data.size(); ++i) {
+                    data[i] = static_cast<std::uint8_t>(random());
+                }
             }
             data.back() = static_cast<std::uint8_t>(count);
         }
@@ -401,20 +471,31 @@ private:
     }
 
     Bytes removePadding(Bytes data) const {
-        if (data.empty()) return data;
+        if (data.empty()) {
+            return data;
+        }
         if (padding_ == PaddingMode::Zeros) {
-            while (!data.empty() && data.back() == 0) data.pop_back();
+            while (!data.empty() && data.back() == 0) {
+                data.pop_back();
+            }
             return data;
         }
         const std::size_t count = data.back();
-        if (count == 0 || count > cipher_->blockSize() || count > data.size())
+        if (count == 0 || count > cipher_->blockSize() || count > data.size()) {
             throw std::runtime_error("Invalid padding");
+        }
         if (padding_ == PaddingMode::PKCS7) {
-            for (std::size_t i = data.size() - count; i < data.size(); ++i)
-                if (data[i] != count) throw std::runtime_error("Invalid PKCS7 padding");
+            for (std::size_t i = data.size() - count; i < data.size(); ++i) {
+                if (data[i] != count) {
+                    throw std::runtime_error("Invalid PKCS7 padding");
+                }
+            }
         } else if (padding_ == PaddingMode::ANSI_X923) {
-            for (std::size_t i = data.size() - count; i + 1 < data.size(); ++i)
-                if (data[i] != 0) throw std::runtime_error("Invalid ANSI X.923 padding");
+            for (std::size_t i = data.size() - count; i + 1 < data.size(); ++i) {
+                if (data[i] != 0) {
+                    throw std::runtime_error("Invalid ANSI X.923 padding");
+                }
+            }
         }
         data.resize(data.size() - count);
         return data;
@@ -434,7 +515,9 @@ private:
         const bool streamMode = mode_ == CipherMode::CFB || mode_ == CipherMode::OFB ||
                                 mode_ == CipherMode::CTR || mode_ == CipherMode::RandomDelta;
         Bytes data = streamMode ? input : (decrypting ? input : addPadding(input));
-        if (!streamMode && data.size() % n != 0) throw std::invalid_argument("Ciphertext length is not block aligned");
+        if (!streamMode && data.size() % n != 0) {
+            throw std::invalid_argument("Ciphertext length is not block aligned");
+        }
         Bytes out; out.reserve(data.size()); Bytes feedback = iv_;
         for (std::size_t offset = 0; offset < data.size(); offset += n) {
             const std::size_t count = std::min(n, data.size() - offset);
@@ -443,8 +526,13 @@ private:
             if (mode_ == CipherMode::ECB) {
                 result = decrypting ? cipher_->decryptBlock(block) : cipher_->encryptBlock(block);
             } else if (mode_ == CipherMode::CBC) {
-                if (decrypting) { result = xorBytes(cipher_->decryptBlock(block), feedback); feedback = block; }
-                else { result = cipher_->encryptBlock(xorBytes(block, feedback)); feedback = result; }
+                if (decrypting) {
+                    result = xorBytes(cipher_->decryptBlock(block), feedback);
+                    feedback = block;
+                } else {
+                    result = cipher_->encryptBlock(xorBytes(block, feedback));
+                    feedback = result;
+                }
             } else if (mode_ == CipherMode::PCBC) {
                 if (decrypting) {
                     result = xorBytes(cipher_->decryptBlock(block), feedback);
@@ -460,13 +548,19 @@ private:
                     result = xorBytes(block, Bytes(mask.begin(), mask.begin() + static_cast<std::ptrdiff_t>(count)));
                     feedback = decrypting ? block : result;
                     if (count != n) { // Partial last segment is supported without feeding unused bytes.
-                        feedback.assign(n, 0); std::copy(block.begin(), block.end(), feedback.begin());
+                        feedback.assign(n, 0);
+                        std::copy(block.begin(), block.end(), feedback.begin());
                     }
                 } else {
                     result.resize(count);
-                    for (std::size_t i = 0; i < count; ++i) result[i] = block[i] ^ mask[i];
-                    if (mode_ == CipherMode::OFB) feedback = std::move(mask);
-                    else addDelta(feedback); // CTR and RandomDelta differ by their configured increment.
+                    for (std::size_t i = 0; i < count; ++i) {
+                        result[i] = block[i] ^ mask[i];
+                    }
+                    if (mode_ == CipherMode::OFB) {
+                        feedback = std::move(mask);
+                    } else {
+                        addDelta(feedback); // CTR and RandomDelta differ by their configured increment.
+                    }
                 }
             }
             out.insert(out.end(), result.begin(), result.end());
@@ -487,20 +581,33 @@ namespace {
 std::string toHex(const Bytes& bytes) {
     static constexpr char digits[] = "0123456789ABCDEF";
     std::string result; result.reserve(bytes.size() * 2);
-    for (std::uint8_t value : bytes) { result.push_back(digits[value >> 4]); result.push_back(digits[value & 0x0f]); }
+    for (std::uint8_t value : bytes) {
+        result.push_back(digits[value >> 4]);
+        result.push_back(digits[value & 0x0f]);
+    }
     return result;
 }
 
 Bytes fromHex(const std::string& text) {
-    if (text.size() % 2) throw std::invalid_argument("Hex string length must be even");
+    if (text.size() % 2) {
+        throw std::invalid_argument("Hex string length must be even");
+    }
     auto digit = [](char c) -> unsigned {
-        if (c >= '0' && c <= '9') return static_cast<unsigned>(c - '0');
-        if (c >= 'a' && c <= 'f') return static_cast<unsigned>(c - 'a' + 10);
-        if (c >= 'A' && c <= 'F') return static_cast<unsigned>(c - 'A' + 10);
+        if (c >= '0' && c <= '9') {
+            return static_cast<unsigned>(c - '0');
+        }
+        if (c >= 'a' && c <= 'f') {
+            return static_cast<unsigned>(c - 'a' + 10);
+        }
+        if (c >= 'A' && c <= 'F') {
+            return static_cast<unsigned>(c - 'A' + 10);
+        }
         throw std::invalid_argument("Invalid hexadecimal digit");
     };
     Bytes result; result.reserve(text.size() / 2);
-    for (std::size_t i = 0; i < text.size(); i += 2) result.push_back(static_cast<std::uint8_t>((digit(text[i]) << 4) | digit(text[i + 1])));
+    for (std::size_t i = 0; i < text.size(); i += 2) {
+        result.push_back(static_cast<std::uint8_t>((digit(text[i]) << 4) | digit(text[i + 1])));
+    }
     return result;
 }
 
@@ -530,8 +637,11 @@ int main(int argc, char** argv) {
             }
             CipherContext fileContext(fileCipher, fileKey, CipherMode::CBC,
                                       PaddingMode::PKCS7, fileIv);
-            if (encrypting) fileContext.encryptFileAsync(argv[2], argv[3]).get();
-            else fileContext.decryptFileAsync(argv[2], argv[3]).get();
+            if (encrypting) {
+                fileContext.encryptFileAsync(argv[2], argv[3]).get();
+            } else {
+                fileContext.decryptFileAsync(argv[2], argv[3]).get();
+            }
             std::cout << algorithm << "-CBC " << (encrypting ? "encrypted " : "decrypted ")
                       << argv[2] << " -> " << argv[3] << '\n';
             return 0;
@@ -542,7 +652,9 @@ int main(int argc, char** argv) {
         const std::array<const char*, 7> modeNames = {"ECB", "CBC", "PCBC", "CFB", "OFB", "CTR", "RandomDelta"};
         for (std::size_t i = 0; i < modes.size(); ++i) {
             std::vector<Bytes> extra;
-            if (modes[i] == CipherMode::RandomDelta) extra.push_back(Bytes{0,0,0,0,0,0,0,3});
+            if (modes[i] == CipherMode::RandomDelta) {
+                extra.push_back(Bytes{0,0,0,0,0,0,0,3});
+            }
             CipherContext desContext(des, key, modes[i], PaddingMode::PKCS7,
                                      fromHex("0102030405060708"), extra);
             const Bytes ciphertext = desContext.encryptAsync(sample).get();
@@ -555,7 +667,9 @@ int main(int argc, char** argv) {
         auto deal = std::make_shared<DEALCipher>();
         for (std::size_t i = 0; i < modes.size(); ++i) {
             std::vector<Bytes> extra;
-            if (modes[i] == CipherMode::RandomDelta) extra.push_back(Bytes(16, 0x01));
+            if (modes[i] == CipherMode::RandomDelta) {
+                extra.push_back(Bytes(16, 0x01));
+            }
             CipherContext dealContext(deal, dealKey, modes[i], PaddingMode::PKCS7,
                                       Bytes(16, 0x01), extra);
             const Bytes ciphertext = dealContext.encryptAsync(sample).get();
