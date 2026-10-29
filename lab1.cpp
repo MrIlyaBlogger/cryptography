@@ -818,7 +818,7 @@ void printUsage(const char* executable) {
     std::cout << "Usage:\n"
               << "  " << executable << "\n"
               << "  " << executable << " --self-test\n"
-              << "  " << executable << " encrypt|decrypt input-file output-file [DES|DEAL] [MODE] [PADDING]\n"
+              << "  " << executable << " encrypt|decrypt input-file output-file DES|DEAL MODE PADDING\n"
               << "Modes: ECB CBC PCBC CFB OFB CTR RandomDelta\n"
               << "Padding: Zeros ANSI_X923 PKCS7 ISO10126 (ignored by CFB/OFB/CTR/RandomDelta)\n";
 }
@@ -834,12 +834,18 @@ int main(int argc, char** argv) {
         if (argc == 2 && std::string(argv[1]) == "--self-test") {
             return runSelfTests() ? 0 : 1;
         }
-        if (argc >= 4 && argc <= 7 &&
-            (std::string(argv[1]) == "encrypt" || std::string(argv[1]) == "decrypt")) {
+        const bool fileOperation = argc >= 2 &&
+            (std::string(argv[1]) == "encrypt" || std::string(argv[1]) == "decrypt");
+        if (fileOperation) {
+            if (argc != 7) {
+                throw std::invalid_argument(
+                    "file encryption/decryption requires input, output, algorithm, mode, and padding; "
+                    "use the same settings for decryption");
+            }
             const bool encrypting = std::string(argv[1]) == "encrypt";
-            const std::string algorithm = argc >= 5 ? argv[4] : "DES";
-            const CipherMode mode = argc >= 6 ? parseCipherMode(argv[5]) : CipherMode::CBC;
-            const PaddingMode padding = argc >= 7 ? parsePaddingMode(argv[6]) : PaddingMode::PKCS7;
+            const std::string algorithm = argv[4];
+            const CipherMode mode = parseCipherMode(argv[5]);
+            const PaddingMode padding = parsePaddingMode(argv[6]);
             auto fileCipher = makeCipher(algorithm);
             const std::size_t blockSize = fileCipher->blockSize();
             CipherContext fileContext(fileCipher, keyFor(algorithm), mode, padding,

@@ -17,10 +17,10 @@ g++ -std=c++17 -O2 -pthread lab1.cpp -o lab1
 Общий формат:
 
 ```sh
-./lab1 encrypt|decrypt входной_файл выходной_файл [DES|DEAL] [MODE] [PADDING]
+./lab1 encrypt|decrypt входной_файл выходной_файл DES|DEAL MODE PADDING
 ```
 
-Если не указать алгоритм, режим или набивку, используются `DES`, `CBC` и `PKCS7` соответственно.
+Алгоритм, режим и набивка обязательны. Для расшифрования укажи те же значения, что при шифровании; без них программа остановится до чтения файла.
 
 ```sh
 ./lab1 encrypt march.jpg march.jpg.enc DES CBC PKCS7
