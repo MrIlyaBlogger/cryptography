@@ -567,7 +567,7 @@ private:
                 if (mode_ == CipherMode::CFB) {
                     result = xorBytes(block, Bytes(mask.begin(), mask.begin() + static_cast<std::ptrdiff_t>(count)));
                     feedback = decrypting ? block : result;
-                    if (count != n) { // Partial last segment is supported without feeding unused bytes.
+                    if (count != n) {
                         feedback.assign(n, 0);
                         std::copy(block.begin(), block.end(), feedback.begin());
                     }
@@ -579,7 +579,7 @@ private:
                     if (mode_ == CipherMode::OFB) {
                         feedback = std::move(mask);
                     } else {
-                        addDelta(feedback); // CTR and RandomDelta differ by their configured increment.
+                        addDelta(feedback);
                     }
                 }
             }
