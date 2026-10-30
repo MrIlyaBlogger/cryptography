@@ -16,7 +16,6 @@
 #include <utility>
 #include <vector>
 
-// The assignment uses byte arrays as the common representation of values.
 using Bytes = std::vector<std::uint8_t>;
 
 enum class BitOrder { LeastSignificantFirst, MostSignificantFirst };
@@ -70,11 +69,8 @@ void writeFile(const std::string& path, const Bytes& data) {
     }
 }
 
-} // namespace
+}
 
-// P-block entries name input bits; output position i receives pBlock[i].
-// Bit positions are ordered byte by byte, with order defining the direction
-// inside each byte. Unused high/low bits of a partial result byte remain zero.
 Bytes permuteBits(const Bytes& value, const std::vector<std::size_t>& pBlock,
                   BitOrder order, FirstBitNumber firstBitNumber) {
     const std::size_t firstBit = firstBitNumber == FirstBitNumber::Zero ? 0 : 1;
@@ -96,7 +92,6 @@ Bytes permuteBits(const Bytes& value, const std::vector<std::size_t>& pBlock,
     return result;
 }
 
-// Interfaces corresponding to задания 2.1-2.3.
 class IKeyExpansion {
 public:
     virtual ~IKeyExpansion() = default;
@@ -121,7 +116,6 @@ public:
 enum class CipherMode { ECB, CBC, PCBC, CFB, OFB, CTR, RandomDelta };
 enum class PaddingMode { Zeros, ANSI_X923, PKCS7, ISO10126 };
 
-// Generic Feistel network. The supplied round function operates on one half.
 class FeistelCipher : public ISymmetricCipher {
 public:
     FeistelCipher(std::shared_ptr<const IKeyExpansion> keyExpansion,
@@ -162,7 +156,7 @@ private:
             left = std::move(right);
             right = std::move(next);
         }
-        left.swap(right); // Feistel final half swap.
+        left.swap(right);
         left.insert(left.end(), right.begin(), right.end());
         return left;
     }
@@ -232,7 +226,6 @@ public:
         }
         std::vector<Bytes> keys;
         for (unsigned shift : SHIFTS) {
-            // Use an explicit rotation to avoid depending on host integer width.
             auto rotateHalf = [shift](Bytes& half) {
                 std::array<bool, 28> bits{}; Bytes result(4, 0);
                 for (std::size_t i = 0; i < 28; ++i) {
@@ -306,8 +299,6 @@ private:
     FeistelCipher network_;
 };
 
-// DEAL uses DES as its round function over 64-bit Feistel halves. The key
-// schedule derives an 8-byte DES key for every round from 128/192/256-bit keys.
 class DEALKeyExpansion : public IKeyExpansion {
 public:
     std::vector<Bytes> expand(const Bytes& key) const override {
@@ -324,9 +315,6 @@ public:
         }
         std::vector<Bytes> result;
         Bytes state(8, 0);
-        // DEAL-128/192/256 extend the input key words with the published
-        // recurrence; round constants are the first, second, fourth, and
-        // eighth MSB-first bit of a 64-bit word.
         for (std::size_t i = 0; i < rounds; ++i) {
             std::size_t wordIndex = 0;
             bool hasConstant = false;
@@ -380,8 +368,6 @@ public:
     }
 
 private:
-    // DEAL reuses each subkey for every data block. Cache the corresponding
-    // DES schedule instead of rebuilding it for every DEAL round invocation.
     mutable std::mutex mutex_;
     mutable std::unordered_map<std::string, std::shared_ptr<const DESCipher>> cache_;
 };
@@ -411,7 +397,6 @@ private:
     FeistelCipher network_;
 };
 
-// Context for transforming data buffers and files.
 class CipherContext {
 public:
     CipherContext(std::shared_ptr<ISymmetricCipher> cipher, const Bytes& key,
@@ -750,8 +735,6 @@ bool runSelfTests() {
         return false;
     }
 
-    // Published DES known-answer vector: this catches errors that a simple
-    // encrypt/decrypt round-trip could hide.
     DESCipher des;
     des.setKey(fromHex("133457799BBCDFF1"));
     const Bytes desPlaintext = fromHex("0123456789ABCDEF");
@@ -761,7 +744,6 @@ bool runSelfTests() {
         return false;
     }
 
-    // Exercise all supported DEAL master-key sizes and exact block inverses.
     DEALKeyExpansion dealExpansion;
     for (std::size_t keySize : {std::size_t(16), std::size_t(24), std::size_t(32)}) {
         const std::size_t expectedRounds = keySize == 32 ? 8 : 6;
@@ -793,7 +775,6 @@ bool runSelfTests() {
                     const std::size_t blockSize = cipher->blockSize();
                     Bytes original = pseudoRandomBytes(length, generator);
                     if (padding == PaddingMode::Zeros && !original.empty()) {
-                        // Zero padding cannot preserve terminal zero bytes by design.
                         original.back() = 1;
                     }
                     CipherContext context(cipher, keyFor(algorithm), mode, padding,
