@@ -67,7 +67,7 @@ std::vector<PrimePower> factorize(Integer n) {
     return factors;
 }
 
-} // namespace
+}
 
 Integer NumberTheory::gcd(Integer a, Integer b) {
     a = magnitude(std::move(a));
@@ -243,4 +243,4 @@ Integer NumberTheory::carmichael(const Integer& n) {
     return result;
 }
 
-} // namespace lab2
+}

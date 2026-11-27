@@ -18,9 +18,7 @@ public:
     static BezoutResult extendedGcd(const Integer& a, const Integer& b);
     static Integer binaryGcd(Integer a, Integer b);
 
-    // The caller must supply an odd prime p.
     static int legendre(const Integer& a, const Integer& p);
-    // n must be positive and odd.
     static int jacobi(Integer a, Integer n);
     static Integer modPow(Integer base, Integer exponent, const Integer& modulus);
 
@@ -30,4 +28,4 @@ public:
     static Integer carmichael(const Integer& n);
 };
 
-} // namespace lab2
+}
